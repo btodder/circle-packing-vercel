@@ -98,6 +98,34 @@
       font-size: 1rem;
       color: #9ca3af;
     }
+
+    /* Progress bar styling */
+    .progress-wrapper {
+      margin-top: 0.75rem;
+    }
+    .progress-title {
+      font-size: 0.8rem;
+      margin-bottom: 0.25rem;
+      color: #9ca3af;
+    }
+    .progress-bar {
+      width: 100%;
+      background: #374151;
+      border-radius: 0.4rem;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-inner {
+      height: 100%;
+      background: #10b981;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .time-label {
+      font-size: 0.7rem;
+      color: #9ca3af;
+      margin-top: 0.2rem;
+    }
   </style>
 </head>
 <body>
@@ -165,6 +193,21 @@
     </form>
     <div class="preview" id="preview">
       <span class="loading" id="loading" style="display:none;">Running optimization…</span>
+      <div id="progress-container" style="display:none; width:100%;">
+        <div class="progress-wrapper">
+          <div class="progress-title">Phase 1 progress</div>
+          <div class="progress-bar"><div id="phase1-inner" class="progress-inner"></div></div>
+          <div class="time-label">Time left: <span id="phase1-time">--:--:--</span></div>
+        </div>
+        <div class="progress-wrapper">
+          <div class="progress-title">Phase 2 progress</div>
+          <div class="progress-bar"><div id="phase2-inner" class="progress-inner"></div></div>
+          <div class="time-label">Time left: <span id="phase2-time">--:--:--</span></div>
+        </div>
+        <div class="progress-wrapper">
+          <div class="progress-title">Total time left: <span id="total-time">--:--:--</span></div>
+        </div>
+      </div>
       <div id="image-container" style="text-align:center; width:100%; height:100%; display:none;">
         <img id="result-image" alt="Packing result">
         <div class="energy" id="energy-display"></div>
@@ -172,17 +215,43 @@
     </div>
   </div>
   <script>
+    // Helper: format seconds into HH:MM:SS; returns '--:--:--' when value is null
+    function formatTime(seconds) {
+      if (seconds === null || seconds === undefined || isNaN(seconds)) {
+        return '--:--:--';
+      }
+      const s = Math.max(0, Math.floor(seconds));
+      const hrs = Math.floor(s / 3600);
+      const mins = Math.floor((s % 3600) / 60);
+      const secs = s % 60;
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
     async function runSimulation() {
       const runButton = document.getElementById('run-button');
       const loading = document.getElementById('loading');
       const imageContainer = document.getElementById('image-container');
       const energyDisplay = document.getElementById('energy-display');
       const resultImage = document.getElementById('result-image');
-      // Show loading indicator and disable button
+      const progressContainer = document.getElementById('progress-container');
+      const phase1Inner = document.getElementById('phase1-inner');
+      const phase2Inner = document.getElementById('phase2-inner');
+      const phase1Time = document.getElementById('phase1-time');
+      const phase2Time = document.getElementById('phase2-time');
+      const totalTime = document.getElementById('total-time');
+
+      // Reset UI
       loading.style.display = 'block';
       imageContainer.style.display = 'none';
+      progressContainer.style.display = 'none';
       runButton.disabled = true;
       energyDisplay.textContent = '';
+      phase1Inner.style.width = '0%';
+      phase2Inner.style.width = '0%';
+      phase1Time.textContent = '--:--:--';
+      phase2Time.textContent = '--:--:--';
+      totalTime.textContent = '--:--:--';
+
       // Build payload from form values
       const form = document.getElementById('params-form');
       const formData = new FormData(form);
@@ -190,7 +259,7 @@
       for (const [key, value] of formData.entries()) {
         payload[key] = value;
       }
-      // Cast numbers
+      // Cast numeric values
       payload.N = Number(payload.N);
       payload.R_container = Number(payload.R_container);
       payload.R_circle = Number(payload.R_circle);
@@ -199,32 +268,87 @@
       payload.num_starts = Number(payload.num_starts);
       payload.quick_iterations = Number(payload.quick_iterations);
       payload.linear_rate = Number(payload.linear_rate);
+
       try {
-        const response = await fetch('/api/run', {
+        // Initiate asynchronous job
+        const startRes = await fetch('/api/start', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (!response.ok) {
-          throw new Error('Server responded ' + response.status);
+        if (!startRes.ok) {
+          throw new Error('Server responded ' + startRes.status);
         }
-        const data = await response.json();
-        if (data && data.image) {
-          resultImage.src = 'data:image/png;base64,' + data.image;
-          energyDisplay.textContent = 'Best energy: ' + data.energy.toFixed(4);
-          imageContainer.style.display = 'block';
-        } else {
-          energyDisplay.textContent = 'No feasible packing found (energy=' + data.energy + ')';
-          imageContainer.style.display = 'block';
+        const startData = await startRes.json();
+        const jobId = startData.job_id;
+        if (!jobId) {
+          throw new Error('Invalid job ID returned by server');
         }
+        // Hide loading and show progress bars
+        loading.style.display = 'none';
+        progressContainer.style.display = 'block';
+        // Function to poll progress
+        const pollInterval = 500; // ms
+        const poll = async () => {
+          try {
+            const res = await fetch(`/api/progress/${jobId}`);
+            if (!res.ok) {
+              throw new Error('Progress error: ' + res.status);
+            }
+            const data = await res.json();
+            if (data.status === 'running') {
+              // Update progress bars and time labels
+              if (typeof data.phase1_progress === 'number') {
+                phase1Inner.style.width = (data.phase1_progress * 100).toFixed(1) + '%';
+              }
+              if (typeof data.phase2_progress === 'number') {
+                phase2Inner.style.width = (data.phase2_progress * 100).toFixed(1) + '%';
+              }
+              phase1Time.textContent = formatTime(data.phase1_time_left);
+              phase2Time.textContent = formatTime(data.phase2_time_left);
+              totalTime.textContent = formatTime(data.total_time_left);
+              // Schedule next poll
+              setTimeout(poll, pollInterval);
+            } else if (data.status === 'completed') {
+              progressContainer.style.display = 'none';
+              if (data.image) {
+                resultImage.src = 'data:image/png;base64,' + data.image;
+              }
+              if (data.success) {
+                energyDisplay.textContent = 'Success! Best energy: ' + data.energy.toFixed(4);
+              } else {
+                energyDisplay.textContent = 'Failed to pack. Best energy: ' + data.energy.toFixed(4);
+              }
+              imageContainer.style.display = 'block';
+              runButton.disabled = false;
+            } else if (data.status === 'error') {
+              progressContainer.style.display = 'none';
+              energyDisplay.textContent = 'Error: ' + (data.error || 'unknown');
+              imageContainer.style.display = 'block';
+              runButton.disabled = false;
+            } else {
+              // Unknown status
+              progressContainer.style.display = 'none';
+              energyDisplay.textContent = 'Unexpected response';
+              imageContainer.style.display = 'block';
+              runButton.disabled = false;
+            }
+          } catch (err) {
+            console.error(err);
+            progressContainer.style.display = 'none';
+            energyDisplay.textContent = 'Error: ' + err.message;
+            imageContainer.style.display = 'block';
+            runButton.disabled = false;
+          }
+        };
+        // Start polling
+        poll();
       } catch (err) {
         console.error(err);
+        loading.style.display = 'none';
+        progressContainer.style.display = 'none';
         energyDisplay.textContent = 'Error: ' + err.message;
         imageContainer.style.display = 'block';
-      } finally {
-        loading.style.display = 'none';
         runButton.disabled = false;
       }
     }
