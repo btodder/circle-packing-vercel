@@ -38,7 +38,21 @@ Open http://localhost:10000.
 | `GET` | `/api/progress/<job_id>` | Poll progress; returns the energy and image when done |
 | `POST` | `/api/run` | Run synchronously and return `{ energy, image }` |
 
-Request body fields (all optional, defaults in `api/packing_core.py`): `N`, `R_container`, `R_circle`, `initial_temp`, `iterations`, `num_starts`, `quick_iterations`, `cooling_mode`, `linear_rate`, `unit_name`, `circle_color`, `container_color`.
+All request body fields are optional. The API applies these defaults:
+
+| Field | Default |
+| --- | --- |
+| `N` | 21 |
+| `R_container` / `R_circle` | 85000 / 16500 |
+| `initial_temp` | 4000 |
+| `iterations` (phase 2) | 100,000 |
+| `num_starts` (phase 1) | 50 |
+| `quick_iterations` (phase 1) | 1,000 |
+| `cooling_mode` | `log` (or `linear`) |
+| `linear_rate` | 1.0 |
+| `unit_name`, `circle_color`, `container_color` | `Units`, `red`, `blue` |
+
+The iteration defaults are capped lower than the module defaults in `api/packing_core.py` (3,000,000 / 2,000 / 5,000) to limit CPU time per request. Pass larger values explicitly for a more thorough search.
 
 ## Project structure
 
@@ -48,5 +62,4 @@ api/packing_core.py  Simulated annealing algorithm and image rendering
 api/run.py           Standalone serverless handler for POST /api/run
 frontend/index.html  UI
 vercel.json          Rewrites / to the front end
-packing_core.py      Older copy of the algorithm (not imported by the app)
 ```
