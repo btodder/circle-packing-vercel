@@ -11,7 +11,7 @@ A web app that packs *N* identical circles inside a larger container circle usin
 
 The result comes back as a final energy score plus a PNG of the layout (rendered with Matplotlib).
 
-In the browser you can set the number of circles, container and circle radii, initial temperature, iteration counts for both phases, cooling mode (logarithmic or linear), axis unit name, and colors. The page sends a single request to `/api/run` and shows an elapsed-time counter until the result comes back. With the default settings a run takes about 1–2 minutes, and on Vercel a run is cut off at 5 minutes (`maxDuration` in `vercel.json`).
+In the browser you can set the number of circles, container and circle radii, initial temperature, iteration counts for both phases, cooling mode (logarithmic or linear), axis unit name, and colors. The page sends a single request to `/api/run` and shows an elapsed-time counter until the result comes back. With the default settings a run takes roughly 40 seconds on Vercel (about 1.5 minutes on a typical laptop), and on Vercel a run is cut off at 5 minutes (`maxDuration` in `vercel.json`).
 
 ## Tech stack
 
