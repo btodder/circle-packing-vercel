@@ -11,7 +11,7 @@ A web app that packs *N* identical circles inside a larger container circle usin
 
 The result comes back as a final energy score plus a PNG of the layout (rendered with Matplotlib).
 
-In the browser you can set the number of circles, container and circle radii, initial temperature, iteration counts for both phases, cooling mode (logarithmic or linear), axis unit name, and colors. Progress is shown while the job runs.
+In the browser you can set the number of circles, container and circle radii, initial temperature, iteration counts for both phases, cooling mode (logarithmic or linear), axis unit name, and colors. The page sends a single request to `/api/run` and shows an elapsed-time counter until the result comes back. With the default settings a run takes about 1–2 minutes, and on Vercel a run is cut off at 5 minutes (`maxDuration` in `vercel.json`).
 
 ## Tech stack
 
@@ -34,9 +34,11 @@ Open http://localhost:10000.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/start` | Start a packing job in the background; returns a job id |
-| `GET` | `/api/progress/<job_id>` | Poll progress; returns the energy and image when done |
-| `POST` | `/api/run` | Run synchronously and return `{ energy, image }` |
+| `POST` | `/api/run` | Run the optimization and return `{ success, energy, image }` (base64 PNG). Used by the page, and available both on Vercel and locally. |
+| `POST` | `/api/start` | *Local only (`app.py`).* Start a background job and return a job id. |
+| `GET` | `/api/progress/<job_id>` | *Local only (`app.py`).* Poll a background job's progress and get the result when done. |
+
+The background-job routes keep jobs in memory, so they only work on a single long-running server. They don't work on Vercel's serverless functions.
 
 All request body fields are optional. The API applies these defaults:
 
@@ -57,9 +59,9 @@ The iteration defaults are capped lower than the module defaults in `api/packing
 ## Project structure
 
 ```
-app.py               Flask app: serves the front end and all /api routes (background jobs + progress)
+app.py               Local Flask server: serves the front end and all /api routes
 api/packing_core.py  Simulated annealing algorithm and image rendering
-api/run.py           Standalone serverless handler for POST /api/run
+api/run.py           Vercel serverless function for POST /api/run
 frontend/index.html  UI
-vercel.json          Rewrites / to the front end
+vercel.json          Rewrites / to the front end; 300 s maxDuration for api/run.py
 ```
