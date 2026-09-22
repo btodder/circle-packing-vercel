@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import random
+from typing import Optional, Callable
 from io import BytesIO
 
 # Constants controlling the cooling schedule and energy thresholds
@@ -50,6 +51,7 @@ warnings.filterwarnings(
         " automatically expanding."
     ),
 )
+
 
 class SimulatedAnnealingPacker:
     """Simulated annealing engine to pack circles into a container circle."""
@@ -158,7 +160,19 @@ class SimulatedAnnealingPacker:
         else:
             return self.INITIAL_TEMP / (1 + LOG_COOLING_CONSTANT * np.log(max(1, i)))
 
-    def run(self, current_start=1, total_starts=1, phase_i=1, total_phases=1):
+    def run(
+        self,
+        current_start: int = 1,
+        total_starts: int = 1,
+        phase_i: int = 1,
+        total_phases: int = 1,
+        progress_callback: Optional[
+            Callable[
+                [int, int, int, int, int, int, float],
+                None,
+            ]
+        ] = None,
+    ) -> tuple[float, np.ndarray]:
         """Run the annealing process for a single start."""
         current_centers = self.centers
         current_energy = self.best_energy
@@ -201,8 +215,25 @@ class SimulatedAnnealingPacker:
                 if i not in [h[0] for h in self.energy_history]:
                     self.energy_history.append((i, self.best_energy))
                     self.temp_history.append((i, temp))
+                # Report progress to callback. The callback signature is:
+                #   callback(iteration, total_iterations, current_start, total_starts, phase, total_phases, energy)
+                if progress_callback is not None:
+                    try:
+                        progress_callback(
+                            i,
+                            self.ITERATIONS,
+                            current_start,
+                            total_starts,
+                            phase_i,
+                            total_phases,
+                            self.best_energy,
+                        )
+                    except Exception:
+                        # Ignore errors in callback to avoid interrupting the simulation
+                        pass
 
         return self.best_energy, self.best_centers
+
 
 def run_two_phase_optimization(
     N: int = DEFAULT_N,
@@ -214,7 +245,13 @@ def run_two_phase_optimization(
     quick_iterations: int = DEFAULT_QUICK_SCREENING_ITERATIONS,
     cooling_mode: str = "log",
     linear_rate: float = 1.0,
-):
+    progress_callback: Optional[
+        Callable[
+            [int, int, int, int, int, int, float],
+            None,
+        ]
+    ] = None,
+) -> tuple[float, np.ndarray]:
     """Run two simulated annealing phases to find a good packing."""
     global_best_energy = float("inf")
     best_screening_centers = None
@@ -227,7 +264,13 @@ def run_two_phase_optimization(
             cooling_mode=cooling_mode,
             linear_rate=linear_rate,
         )
-        e, centers = packer.run(start_i, num_starts, 1, 2)
+        e, centers = packer.run(
+            current_start=start_i,
+            total_starts=num_starts,
+            phase_i=1,
+            total_phases=2,
+            progress_callback=progress_callback,
+        )
         if e < global_best_energy:
             global_best_energy = e
             best_screening_centers = centers.copy()
@@ -244,7 +287,13 @@ def run_two_phase_optimization(
         linear_rate=linear_rate,
     )
     packer.best_energy = global_best_energy
-    final_energy, final_centers = packer.run(1, 1, 2, 2)
+    final_energy, final_centers = packer.run(
+        current_start=1,
+        total_starts=1,
+        phase_i=2,
+        total_phases=2,
+        progress_callback=progress_callback,
+    )
     return final_energy, final_centers
 
 
@@ -257,7 +306,7 @@ def render_packing_image(
     container_color: str = DEFAULT_CONTAINER_COLOR,
     title: str = "Packing Result",
 ) -> BytesIO:
-    """Draw a packing diagram using Matplotlib and return a PNG in a BytesIO buffer.""" 
+    """Draw a packing diagram using Matplotlib and return a PNG in a BytesIO buffer."""
     fig, ax = plt.subplots(figsize=(6, 6))
     limit = R_container * 1.1 if R_container > 0 else 1.0
     ax.set_xlim(-limit, limit)
