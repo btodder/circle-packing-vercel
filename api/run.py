@@ -7,8 +7,8 @@ parameters. It will run a two‑phase simulated annealing optimization and retur
 the best energy along with a base64‑encoded PNG image of the packing result.
 
 The function defines the `app` variable, which Vercel detects to launch the
-WSGI application. The route is registered at `/` so that the path of the
-serverless function (e.g. `/api/run`) matches the file name only once.
+WSGI application. Vercel passes the full request path (`/api/run`) through to
+Flask, so the route is registered there as well as at `/`.
 """
 
 import base64
@@ -26,6 +26,7 @@ from .packing_core import (
     DEFAULT_ITERATIONS,
     DEFAULT_NUM_STARTS,
     DEFAULT_QUICK_SCREENING_ITERATIONS,
+    SOLUTION_ENERGY_THRESHOLD,
 )
 
 
@@ -41,7 +42,8 @@ def _parse_json_field(data: dict, field: str, default, cast_type):
         return default
 
 
-@app.route("/", methods=["POST"])  # root path; file name defines the base path
+@app.route("/", methods=["POST"])
+@app.route("/api/run", methods=["POST"])
 def run_packing() -> object:
     """Run the packing optimization and return a JSON response."""
     try:
@@ -109,11 +111,13 @@ def run_packing() -> object:
         img_bytes = buf.getvalue()
         img_b64 = base64.b64encode(img_bytes).decode("utf-8")
         payload = {
+            "success": bool(best_energy < SOLUTION_ENERGY_THRESHOLD),
             "energy": best_energy,
             "image": img_b64,
         }
     else:
         payload = {
+            "success": False,
             "energy": best_energy,
             "image": None,
         }
